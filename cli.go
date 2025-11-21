@@ -41,6 +41,26 @@ type ServerInfo struct {
 	ServerName    string
 }
 
+// Config SQL Server 连接配置
+type Config struct {
+	Host             string
+	Port             int
+	Username         string
+	Password         string
+	Database         string
+	Instance         string        // SQL Server 实例名
+	Encrypt          string        // disable, false, true
+	TrustServerCert  bool          // 是否信任服务器证书
+	ConnectTimeout   int           // 连接超时（秒）
+	ConnectionString string        // 自定义连接字符串
+	MaxOpenConns     int           // 最大打开连接数
+	MaxIdleConns     int           // 最大空闲连接数
+	ConnMaxLifetime  time.Duration // 连接最大生命周期
+	ApplicationName  string        // 应用名称
+	// 其他参数
+	Params map[string]string
+}
+
 // NewCLI 创建新的 SQL Server CLI 实例
 func NewCLI(term Terminal, host string, port int, username, password, database string) *CLI {
 	return &CLI{
@@ -50,6 +70,20 @@ func NewCLI(term Terminal, host string, port int, username, password, database s
 		username: username,
 		password: password,
 		database: database,
+		reader:   NewReader(term),
+		maxRows:  1000,
+	}
+}
+
+// NewCLIWithConfig 使用配置创建 SQL Server CLI 实例
+func NewCLIWithConfig(term Terminal, config *Config) *CLI {
+	return &CLI{
+		term:     term,
+		host:     config.Host,
+		port:     config.Port,
+		username: config.Username,
+		password: config.Password,
+		database: config.Database,
 		reader:   NewReader(term),
 		maxRows:  1000,
 	}
@@ -100,8 +134,9 @@ func (c *CLI) showWelcome() {
 // Start 启动交互式命令行
 func (c *CLI) Start() error {
 	for {
+		// 设置提示符
 		prompt := c.getPrompt()
-		fmt.Fprintf(c.term, prompt)
+		c.reader.SetPrompt(prompt)
 
 		sqlStr := c.readMultiLine()
 		if sqlStr == "" {
@@ -144,6 +179,14 @@ func (c *CLI) readMultiLine() string {
 			return ""
 		}
 
+		// 如果是第一行，检查是否是特殊命令（不需要分隔符）
+		if len(lines) == 0 {
+			cmdLower := strings.ToLower(trimmed)
+			if cmdLower == "exit" || cmdLower == "quit" || cmdLower == "help" {
+				return trimmed
+			}
+		}
+
 		lines = append(lines, line)
 
 		// SQL Server 使用 GO 作为批处理分隔符
@@ -158,7 +201,8 @@ func (c *CLI) readMultiLine() string {
 			break
 		}
 
-		fmt.Fprintf(c.term, "  -> ")
+		// 设置多行提示符
+		c.reader.SetPrompt("  -> ")
 	}
 
 	result := strings.Join(lines, "\n")
